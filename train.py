@@ -12,6 +12,7 @@ import sys
 import argparse
 import cPickle as pickle
 import os
+import time
 
 import RNN
 
@@ -87,6 +88,7 @@ def compute_loss(seq_batch):
 
 for epoch in xrange(args.start_epoch+1, args.epochs+1):
     print 'epoch %d/%d' % (epoch, args.epochs)
+    start = time.time()
     np.random.shuffle(train_data)
     for i in xrange(0, train_data_len, args.batch_size):
         sys.stdout.write( '%d/%d\r' % (i, train_data_len) )
@@ -101,6 +103,8 @@ for epoch in xrange(args.start_epoch+1, args.epochs+1):
         serializers.save_npz(checkpoint_dir+'/epoch_%d.model' % (epoch), model)
     
     print 'epoch %d end.' % (epoch)
+    elapsed_time = time.time() - start
+    print ("epoch_time:{0}".format(elapsed_time)) + "[sec]"
 
 
 serializers.save_npz(checkpoint_dir+'/latest.model', model)
