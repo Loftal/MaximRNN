@@ -10,20 +10,35 @@ from chainer.training import extensions
 
 
 class LSTM(Chain):
-    def __init__(self, n_vocab, l1_units, l2_units):
-        super(LSTM, self).__init__(
-            embed = L.EmbedID(n_vocab, l1_units, ignore_label=-1),
-            l1=L.LSTM(l1_units, l2_units),
-            l2=L.Linear(l2_units, n_vocab)
-        )
-    
+    def __init__(self, n_vocab, l1_units, l2_units,layer):
+        self.layer = layer
+        if layer==2:
+            super(LSTM, self).__init__(
+                embed = L.EmbedID(n_vocab, l1_units, ignore_label=-1),
+                l1=L.LSTM(l1_units, l2_units),
+                l2=L.Linear(l2_units, n_vocab)
+            )
+        elif layer==3:
+            super(LSTM, self).__init__(
+                embed = L.EmbedID(n_vocab, l1_units, ignore_label=-1),
+                l1=L.LSTM(l1_units, l2_units),
+                l2=L.LSTM(l2_units, l1_units),
+                l3=L.Linear(l1_units, n_vocab),
+            )
+
     def reset_state(self):
         self.l1.reset_state()
     
     def __call__(self, x):
-        h0 = self.embed(x)
-        h1 = self.l1(h0)
-        y = self.l2(h1)
+        if self.layer==2:
+            h0 = self.embed(x)
+            h1 = self.l1(h0)
+            y = self.l2(h1)
+        elif self.layer==3:
+            h0 = self.embed(x)
+            h1 = self.l1(h0)
+            h2 = self.l2(h1)
+            y = self.l3(h2)
         return y
 
 

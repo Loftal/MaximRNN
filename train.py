@@ -27,9 +27,13 @@ parser.add_argument('--epochs',         type=int,   default=100)
 parser.add_argument('--start_epoch',    type=int,   default=0)
 parser.add_argument('--save_interval',  type=int,   default=10)
 parser.add_argument('--seed',           type=int,   default=1)
+parser.add_argument('--gpu',            type=int,   default=-1)
+parser.add_argument('--layer',            type=int,   default=3)
 args = parser.parse_args()
 
-np.random.seed(args.seed)
+
+xp = cuda.cupy if args.gpu >= 0 else np
+xp.random.seed(args.seed)
 
 # モデル保存用フォルダ
 checkpoint_dir = '%s_%s_%s_%s' % ( args.data_file, args.model_class, args.l1_size, args.l2_size )
@@ -42,10 +46,14 @@ train_data = pickle.load(open('%s/%s_train_data.bin' % (args.data_dir, args.data
 train_data_len = len(train_data)
 
 
-model_class = 'RNN.%s(%s,%s,%s)' % (args.model_class, len(vocab), args.l1_size, args.l2_size)
+model_class = 'RNN.%s(%s,%s,%s,%i)' % (args.model_class, len(vocab), args.l1_size, args.l2_size,int(args.layer))
 print model_class
 rnn = eval(model_class)
 model = L.Classifier(rnn)
+if args.gpu >= 0:
+    print 'use GPU!'
+    cuda.get_device(args.gpu).use()
+    model.to_gpu()
 
 # すでにあるモデルから学習を始める場合
 if args.start_epoch > 0:
@@ -57,6 +65,7 @@ optimizer.setup(model)
 
 
 def align_length(seq_list):
+    global xp
     # 長さを揃えるため max_length に合わせて -1 で埋める
     max_length = 0
     for seq in seq_list:
@@ -66,7 +75,7 @@ def align_length(seq_list):
     seq_batch = [ np.full((max_length), -1, dtype=np.int32) for i in xrange(len(seq_list)) ]
     for i, data in enumerate(seq_list):
         seq_batch[i][:len(data)] = seq_list[i]
-    return np.array(seq_batch)
+    return xp.array(seq_batch)
 
 def compute_loss(seq_batch):
     loss = 0
