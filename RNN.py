@@ -28,7 +28,8 @@ class LSTM(Chain):
 
     def reset_state(self):
         self.l1.reset_state()
-    
+        self.l2.reset_state()
+
     def __call__(self, x):
         if self.layer==2:
             h0 = self.embed(x)
