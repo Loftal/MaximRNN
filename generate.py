@@ -14,6 +14,7 @@ import argparse
 import cPickle as pickle
 import os
 import function
+import MeCab
 
 import RNN
 
@@ -29,6 +30,7 @@ parser.add_argument('--seed',           type=int,   default=1)
 parser.add_argument('--deterministic',  type=bool,   default=False)
 parser.add_argument('--gpu',            type=int,   default=-1)
 parser.add_argument('--layer',            type=int,   default=3)
+parser.add_argument('--primetext',            type=str,   default='')
 
 #person
 parser.add_argument('--person_size',        type=int,   default=10)
@@ -37,6 +39,7 @@ args = parser.parse_args()
 
 xp = cuda.cupy if args.gpu >= 0  else np
 xp.random.seed(args.seed)
+mecab = MeCab.Tagger ("-Ochasen")
 
 use_person = args.model_class=='PersonLSTM'
 
@@ -71,14 +74,32 @@ serializers.load_npz(checkpoint_dir+'/'+args.model_file, model)
 ivocab = {}
 for c, i in vocab.iteritems():
     ivocab[i] = c
-#person list
 
+#prime text
+first_index_a = []
+if args.primetext!='':
+    print 'use PRIME TEXT!'
+    node = mecab.parseToNode(args.primetext)
+    while node:
+        if node.surface=="":
+            node=node.next
+            continue
+        word = node.surface+"::"+node.feature
+        first_index_a.append(vocab[word])
+        node = node.next
 
 for i in xrange(30):
     model.predictor.reset_state()
-    index = np.random.randint(1, len(vocab))
-    while index != 0:
+    if args.primetext!='':
+        for index in first_index_a:
+            sys.stdout.write( ivocab[index].split("::")[0] )
+            model.predictor([xp.array([index], dtype=xp.int32),xp.array([person_index], dtype=xp.int32)])
+
+    else:
+        index = np.random.randint(1, len(vocab))
         sys.stdout.write( ivocab[index].split("::")[0] )
+    counter=0
+    while index != 0:
         y = model.predictor([xp.array([index], dtype=xp.int32),xp.array([person_index], dtype=xp.int32)])
         probability = F.softmax(y)
         if args.deterministic:
@@ -87,8 +108,14 @@ for i in xrange(30):
         probability.data[0] /= sum(probability.data[0])
         try:
             index = xp.random.choice(range(len(probability.data[0])), p=probability.data[0])
+            sys.stdout.write( ivocab[index].split("::")[0] )
         except Exception as e:
             print 'probability error'
+            break
+        counter += 1
+
+        #max length
+        if counter>200:
             break
     print '\n=========='
 
