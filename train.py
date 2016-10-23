@@ -57,6 +57,8 @@ if use_person:
     person_data = pickle.load(open('%s/%s_person_data.bin' % (args.data_dir, args.data_file), 'rb'))
     person_index_a = []
     person_unique_a = function.remove_duplicates(person_data)
+    if 'unknown' not in person_unique_a:
+        person_unique_a.append('unknown')
     for person in person_data:
         person_index_a.append(person_unique_a.index(person))
 

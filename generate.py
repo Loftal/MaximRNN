@@ -45,6 +45,8 @@ train_data = pickle.load(open('%s/%s_train_data.bin' % (args.data_dir, args.data
 if use_person:
     person_data = pickle.load(open('%s/%s_person_data.bin' % (args.data_dir, args.data_file), 'rb'))
     person_unique_a = function.remove_duplicates(person_data)
+    if 'unknown' not in person_unique_a:
+        person_unique_a.append('unknown')
 
 if args.model_class=='PersonLSTM':
     model_class = 'RNN.%s(%s,%s,%s,%s,%s,%i)' % (args.model_class, len(vocab),len(person_unique_a), args.l1_size,args.person_size, args.l2_size,int(args.layer))
@@ -74,7 +76,7 @@ for i in xrange(30):
     index = xp.random.randint(1, len(vocab))
     while index != 0:
         sys.stdout.write( ivocab[index].split("::")[0] )
-        y = model.predictor([xp.array([index], dtype=xp.int32),xp.array([0], dtype=xp.int32)])
+        y = model.predictor([xp.array([index], dtype=xp.int32),xp.array([2], dtype=xp.int32)])
         probability = F.softmax(y)
         if args.deterministic:
             index = int(F.argmax(probability.data[0]).data)
