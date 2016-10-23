@@ -7,12 +7,14 @@ from chainer import Link, Chain, ChainList
 import chainer.functions as F
 import chainer.links as L
 from chainer.training import extensions
+from random import shuffle
 
 import sys
 import argparse
 import cPickle as pickle
 import os
 import time
+import function
 
 import RNN
 
@@ -20,7 +22,7 @@ import RNN
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_dir',       type=str,   default='data')
 parser.add_argument('--data_file',      type=str,   default='Descartes')
-parser.add_argument('--model_class',    type=str,   default='LSTM')
+parser.add_argument('--model_class',    type=str,   default='PersonLSTM')
 parser.add_argument('--l1_size',        type=int,   default=100)
 parser.add_argument('--l2_size',        type=int,   default=100)
 parser.add_argument('--batch_size',     type=int,   default=5)
@@ -30,7 +32,12 @@ parser.add_argument('--save_interval',  type=int,   default=10)
 parser.add_argument('--seed',           type=int,   default=1)
 parser.add_argument('--gpu',            type=int,   default=-1)
 parser.add_argument('--layer',            type=int,   default=3)
+
+#person
+parser.add_argument('--person_size',        type=int,   default=10)
+
 args = parser.parse_args()
+use_person = args.model_class=='PersonLSTM'
 
 
 xp = cuda.cupy if args.gpu >= 0 else np
@@ -46,8 +53,17 @@ vocab = pickle.load(open('%s/%s_vocab.bin' % (args.data_dir, args.data_file), 'r
 train_data = pickle.load(open('%s/%s_train_data.bin' % (args.data_dir, args.data_file), 'rb'))
 train_data_len = len(train_data)
 
+if use_person:
+    person_data = pickle.load(open('%s/%s_person_data.bin' % (args.data_dir, args.data_file), 'rb'))
+    person_index_a = []
+    person_unique_a = function.remove_duplicates(person_data)
+    for person in person_data:
+        person_index_a.append(person_unique_a.index(person))
 
-model_class = 'RNN.%s(%s,%s,%s,%i)' % (args.model_class, len(vocab), args.l1_size, args.l2_size,int(args.layer))
+if args.model_class=='PersonLSTM':
+    model_class = 'RNN.%s(%s,%s,%s,%s,%s,%i)' % (args.model_class, len(vocab),len(person_unique_a), args.l1_size,args.person_size, args.l2_size,int(args.layer))
+else:
+    model_class = 'RNN.%s(%s,%s,%s,%i)' % (args.model_class, len(vocab), args.l1_size, args.l2_size,int(args.layer))
 print model_class
 rnn = eval(model_class)
 model = L.Classifier(rnn)
@@ -76,20 +92,34 @@ def align_length(seq_list):
     seq_batch = [ np.full((max_length), -1, dtype=np.int32) for i in xrange(len(seq_list)) ]
     for i, data in enumerate(seq_list):
         seq_batch[i][:len(data)] = seq_list[i]
-    return xp.array(seq_batch)
+    return xp.array(seq_batch,dtype=xp.int32)
 
-def compute_loss(seq_batch):
+def compute_loss(seq_batch,person_list):
     loss = 0
     for cur_word, next_word in zip(seq_batch.T, seq_batch.T[1:]):
-        loss += model(cur_word, next_word)
+        loss += model([cur_word,person_list], next_word)
     return loss
+def shuffle_in_unison(list1, list2):
+    list1_shuf = []
+    list2_shuf = []
+    index_shuf = range(len(list1))
+    shuffle(index_shuf)
+    for i in index_shuf:
+        list1_shuf.append(list1[i])
+        list2_shuf.append(list2[i])
+    return list1_shuf,list2_shuf
 
 
 
 for epoch in xrange(args.start_epoch+1, args.epochs+1):
     print 'epoch %d/%d' % (epoch, args.epochs)
     start = time.time()
-    np.random.shuffle(train_data)
+    #shuffle
+    if use_person:
+        train_data,person_index_a = shuffle_in_unison(train_data,person_index_a)
+    else:
+        np.random.shuffle(train_data)
+
     for i in xrange(0, train_data_len, args.batch_size):
         sys.stdout.write( '%d/%d\r' % (i, train_data_len) )
         sys.stdout.flush()
@@ -97,8 +127,12 @@ for epoch in xrange(args.start_epoch+1, args.epochs+1):
         #print [ [(i+j)%train_data_len] for j in xrange(args.batch_size) ]
         seq_list = [ train_data[(i+j)%train_data_len] for j in xrange(args.batch_size) ]
         seq_batch = align_length(seq_list)
-        optimizer.update(compute_loss, seq_batch)
-    
+        if use_person:
+            person_list = xp.array([ person_index_a[(i+j)%train_data_len] for j in xrange(args.batch_size) ], dtype=np.int32)
+            optimizer.update(compute_loss, seq_batch,person_list)
+        else:
+            optimizer.update(compute_loss, seq_batch)
+
     if epoch % args.save_interval == 0:
         serializers.save_npz(checkpoint_dir+'/epoch_%d.model' % (epoch), model)
     
