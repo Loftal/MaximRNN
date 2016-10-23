@@ -54,6 +54,7 @@ train_data = pickle.load(open('%s/%s_train_data.bin' % (args.data_dir, args.data
 train_data_len = len(train_data)
 
 if use_person:
+    print 'use PERSON!'
     person_data = pickle.load(open('%s/%s_person_data.bin' % (args.data_dir, args.data_file), 'rb'))
     person_index_a = []
     person_unique_a = function.remove_duplicates(person_data)
@@ -96,10 +97,13 @@ def align_length(seq_list):
         seq_batch[i][:len(data)] = seq_list[i]
     return xp.array(seq_batch,dtype=xp.int32)
 
-def compute_loss(seq_batch,person_list):
+def compute_loss(seq_batch,person_list=None):
     loss = 0
     for cur_word, next_word in zip(seq_batch.T, seq_batch.T[1:]):
-        loss += model([cur_word,person_list], next_word)
+        if use_person:
+            loss += model([cur_word,person_list], next_word)
+        else:
+            loss += model(cur_word, next_word)
     return loss
 def shuffle_in_unison(list1, list2):
     list1_shuf = []

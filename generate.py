@@ -32,9 +32,10 @@ parser.add_argument('--layer',            type=int,   default=3)
 
 #person
 parser.add_argument('--person_size',        type=int,   default=10)
+parser.add_argument('--person',        type=str,   default="unknown")
 args = parser.parse_args()
 
-xp = cuda.cupy if args.gpu >= 0 else np
+xp = cuda.cupy if args.gpu >= 0  else np
 xp.random.seed(args.seed)
 
 use_person = args.model_class=='PersonLSTM'
@@ -47,6 +48,9 @@ if use_person:
     person_unique_a = function.remove_duplicates(person_data)
     if 'unknown' not in person_unique_a:
         person_unique_a.append('unknown')
+
+person_index = person_unique_a.index(args.person)
+print "PERSON:"+args.person
 
 if args.model_class=='PersonLSTM':
     model_class = 'RNN.%s(%s,%s,%s,%s,%s,%i)' % (args.model_class, len(vocab),len(person_unique_a), args.l1_size,args.person_size, args.l2_size,int(args.layer))
@@ -67,16 +71,15 @@ serializers.load_npz(checkpoint_dir+'/'+args.model_file, model)
 ivocab = {}
 for c, i in vocab.iteritems():
     ivocab[i] = c
-
 #person list
 
 
 for i in xrange(30):
     model.predictor.reset_state()
-    index = xp.random.randint(1, len(vocab))
+    index = np.random.randint(1, len(vocab))
     while index != 0:
         sys.stdout.write( ivocab[index].split("::")[0] )
-        y = model.predictor([xp.array([index], dtype=xp.int32),xp.array([2], dtype=xp.int32)])
+        y = model.predictor([xp.array([index], dtype=xp.int32),xp.array([person_index], dtype=xp.int32)])
         probability = F.softmax(y)
         if args.deterministic:
             index = int(F.argmax(probability.data[0]).data)
@@ -84,7 +87,7 @@ for i in xrange(30):
         probability.data[0] /= sum(probability.data[0])
         try:
             index = xp.random.choice(range(len(probability.data[0])), p=probability.data[0])
-        except:
+        except Exception as e:
             print 'probability error'
             break
     print '\n=========='
