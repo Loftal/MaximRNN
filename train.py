@@ -32,6 +32,7 @@ parser.add_argument('--save_interval',  type=int,   default=10)
 parser.add_argument('--seed',           type=int,   default=1)
 parser.add_argument('--gpu',            type=int,   default=-1)
 parser.add_argument('--layer',            type=int,   default=3)
+parser.add_argument('--reverse',            type=int,   default=0)
 
 #person
 parser.add_argument('--person_size',        type=int,   default=10)
@@ -44,7 +45,10 @@ xp = cuda.cupy if args.gpu >= 0 else np
 xp.random.seed(args.seed)
 
 # モデル保存用フォルダ
-checkpoint_dir = '%s_%s_%s_%s' % ( args.data_file, args.model_class, args.l1_size, args.l2_size )
+if args.reverse:
+    checkpoint_dir = '%s_%s_%s_%s_reverse' % ( args.data_file, args.model_class, args.l1_size, args.l2_size )
+else:
+    checkpoint_dir = '%s_%s_%s_%s' % ( args.data_file, args.model_class, args.l1_size, args.l2_size )
 if not os.path.exists(checkpoint_dir):
     os.mkdir(checkpoint_dir)
 
@@ -53,10 +57,21 @@ vocab = pickle.load(open('%s/%s_vocab.bin' % (args.data_dir, args.data_file), 'r
 train_data = pickle.load(open('%s/%s_train_data.bin' % (args.data_dir, args.data_file), 'rb'))
 train_data_len = len(train_data)
 
+if args.reverse:
+    print 'REVERSE MODE!'
+    for i,data in enumerate(train_data):
+        data = data[::-1]
+        data = data[1:]
+        data = np.append(data,0)
+        train_data[i] = data
+
 if use_person:
+    print 'use PERSON!'
     person_data = pickle.load(open('%s/%s_person_data.bin' % (args.data_dir, args.data_file), 'rb'))
     person_index_a = []
     person_unique_a = function.remove_duplicates(person_data)
+    if 'unknown' not in person_unique_a:
+        person_unique_a.append('unknown')
     for person in person_data:
         person_index_a.append(person_unique_a.index(person))
 
@@ -94,10 +109,13 @@ def align_length(seq_list):
         seq_batch[i][:len(data)] = seq_list[i]
     return xp.array(seq_batch,dtype=xp.int32)
 
-def compute_loss(seq_batch,person_list):
+def compute_loss(seq_batch,person_list=None):
     loss = 0
     for cur_word, next_word in zip(seq_batch.T, seq_batch.T[1:]):
-        loss += model([cur_word,person_list], next_word)
+        if use_person:
+            loss += model([cur_word,person_list], next_word)
+        else:
+            loss += model(cur_word, next_word)
     return loss
 def shuffle_in_unison(list1, list2):
     list1_shuf = []
@@ -135,7 +153,7 @@ for epoch in xrange(args.start_epoch+1, args.epochs+1):
 
     if epoch % args.save_interval == 0:
         serializers.save_npz(checkpoint_dir+'/epoch_%d.model' % (epoch), model)
-    
+
     print 'epoch %d end.' % (epoch)
     elapsed_time = time.time() - start
     print ("epoch_time:{0}".format(elapsed_time)) + "[sec]"
