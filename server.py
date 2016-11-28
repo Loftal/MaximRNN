@@ -20,6 +20,12 @@ import re
 
 import RNN
 
+from flask import Flask, request
+from flask_cors import CORS, cross_origin
+app = Flask(__name__)
+CORS(app)
+
+
 # arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_dir',       type=str,   default='data')
@@ -37,7 +43,7 @@ parser.add_argument('--reverse_model_file',           type=str,   default='')
 parser.add_argument('--suggest_start_letters',           type=str,   default='')
 
 #generate,suggest
-parser.add_argument('--mode',           type=str,   default='normal')
+parser.add_argument('--mode',           type=str,   default='suggest')
 parser.add_argument('--suggest_start',           type=str,   default='normal')
 
 #person
@@ -62,8 +68,6 @@ if use_person:
     if 'unknown' not in person_unique_a:
         person_unique_a.append('unknown')
 
-person_index = person_unique_a.index(args.person)
-print "PERSON:"+args.person
 
 if args.model_class=='PersonLSTM':
     model_class = 'RNN.%s(%s,%s,%s,%s,%s,%i)' % (args.model_class, len(vocab),len(person_unique_a), args.l1_size,args.person_size, args.l2_size,int(args.layer))
@@ -91,23 +95,30 @@ if use_reverse:
 
 # vocabのキーと値を入れ替えたもの
 ivocab = {}
+ivocab_a = {}
 for c, i in vocab.iteritems():
     ivocab[i] = c
+    _data = c.split("::")
+    _data[1] = _data[1].split(',')
+    if len(_data[1])>=8:
+        _data[1][7] = function.hiragana(_data[1][7].decode('utf-8')).encode('utf-8')
+    ivocab_a[i] = _data
 
 #prime text
-first_index_a = []
-if args.primetext!='':
-    print 'use PRIME TEXT!'
-    node = mecab.parseToNode(args.primetext)
+def get_first_index_a(_text):
+    _first_index_a = []
+    node = mecab.parseToNode(_text)
     while node:
         if node.surface=="":
             node=node.next
             continue
         word = node.surface+"::"+node.feature
-        first_index_a.append(vocab[word])
+        _first_index_a.append(vocab[word])
         node = node.next
+    return _first_index_a
 
-def get_index_a(_model,_first_index_a):
+'''
+def get_index_a(_model,_first_index_a,person_index):
     _model.predictor.reset_state()
     _sentence_index_a = []
     if len(_first_index_a)>0:
@@ -138,9 +149,9 @@ def get_index_a(_model,_first_index_a):
         if counter>200:
             break
     return _sentence_index_a
-
-def get_suggest_words(_model,_first_index_a,limit):
-    global ivocab
+'''
+def get_suggest_words(_model,_first_index_a,start_text,person_index,limit):
+    global ivocab,ivocab_a
     _model.predictor.reset_state()
     _sentence_index_a = []
     if len(_first_index_a)>0:
@@ -155,54 +166,44 @@ def get_suggest_words(_model,_first_index_a,limit):
     probability.data[0] /= sum(probability.data[0])
     probability = probability.data[0]
     _key_a = np.argsort(probability)[::-1]
-    _value_a = np.sort(probability)[::-1]
+    #_value_a = np.sort(probability)[::-1]
     result_a = []
-    pattern = re.compile(r"^"+args.suggest_start_letters)
+    pattern = re.compile(r"^"+start_text)
+    print r"^"+start_text
     for i,key in enumerate(_key_a):
-        _data = ivocab[key].split("::")
-        _data[1] = _data[1].split(',')
-        if args.suggest_start_letters!='':
-            if pattern.match(_data[0])==None and (len(_data[1])<8 or pattern.match(function.hiragana(_data[1][7].decode('utf-8')).encode('utf-8'))==None):
+        _data = ivocab_a[key]
+
+        if start_text!='':
+            if pattern.match(_data[0])==None and (len(_data[1])<8 or pattern.match(_data[1][7])==None):
                 continue
 
+        result_a.append(_data[0])
+        '''
         result_a.append({
             'index':key,
             'surface':_data[0],
             'mecab':_data[1],
             'profitability':str(_value_a[i])
         })
+        '''
         if len(result_a)==limit:
             break
 
     return result_a
+@app.route('/')
+def index():
+    return 'Index Page'
 
+@app.route('/suggest')
+def hello():
+    #return "You said: " + request.args.get('start', '')
+    person_index = person_unique_a.index(request.args.get('person', ''))
+    first_index_a =  get_first_index_a(request.args.get('text', '').encode('utf-8'))
+    start_text = request.args.get('start', '').encode('utf-8')
+    #print "PERSON:"+args.person
+    #return 'Hello World'
+    words_a = get_suggest_words(model,first_index_a,start_text,person_index,5)
+    return json.dumps(words_a)
 
-if args.mode=='suggest':
-    words_a = get_suggest_words(model,first_index_a,30)
-    for data in words_a[0:5]:
-        _tmp_index_a = first_index_a[::]
-        _tmp_index_a.append(data['index'])
-        sentence_index_a = get_index_a(model,_tmp_index_a)
-        sentence = ''
-        for index in sentence_index_a:
-            sentence += ivocab[index].split("::")[0]
-        data['sentence']= sentence
-
-    print json.dumps(words_a)
-else:
-    print '\n-=-=-=-=-=-=-=-'
-    for i in xrange(10):
-        sentence_index_a = get_index_a(model,first_index_a)
-        #reverse
-        if use_reverse and args.primetext:
-            sentence_index_a.reverse()
-            sentence_index_a = get_index_a(model_reverse,sentence_index_a)
-            sentence_index_a.reverse()
-            pass
-
-
-        for index in sentence_index_a:
-            sys.stdout.write( ivocab[index].split("::")[0] )
-        print '\n-=-=-=-=-=-=-=-'
-
-    #print 'generated!'
+if __name__ == '__main__':
+    app.run(host='0.0.0.0')

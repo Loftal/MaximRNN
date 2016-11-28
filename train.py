@@ -111,11 +111,14 @@ def align_length(seq_list):
 
 def compute_loss(seq_batch,person_list=None):
     loss = 0
+    counter=0;
     for cur_word, next_word in zip(seq_batch.T, seq_batch.T[1:]):
+        counter+=1
         if use_person:
             loss += model([cur_word,person_list], next_word)
         else:
             loss += model(cur_word, next_word)
+    print "loss:"+str(loss.data/counter)
     return loss
 def shuffle_in_unison(list1, list2):
     list1_shuf = []

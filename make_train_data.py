@@ -8,6 +8,9 @@ import os
 import codecs
 import re
 
+
+
+
 # arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_dir',   type=str,   default='data')
