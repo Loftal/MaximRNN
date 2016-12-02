@@ -49,6 +49,8 @@ parser.add_argument('--suggest_start',           type=str,   default='normal')
 #person
 parser.add_argument('--person_size',        type=int,   default=10)
 parser.add_argument('--person',        type=str,   default="unknown")
+parser.add_argument('--processor',  type=str,   default='mecab')
+parser.add_argument('--port',  type=int,   default=5000)
 args = parser.parse_args()
 
 use_reverse = args.reverse_model_file!=''
@@ -59,11 +61,12 @@ mecab = MeCab.Tagger ("-Ochasen")
 
 use_person = args.model_class=='PersonLSTM'
 
-vocab = pickle.load(open('%s/%s_vocab.bin' % (args.data_dir, args.data_file), 'rb'))
-train_data = pickle.load(open('%s/%s_train_data.bin' % (args.data_dir, args.data_file), 'rb'))
+suffix = '' if args.processor=='mecab' else '_cabocha'
+vocab = pickle.load(open('%s/%s%s_vocab.bin' % (args.data_dir, args.data_file,suffix), 'rb'))
+train_data = pickle.load(open('%s/%s%s_train_data.bin' % (args.data_dir, args.data_file,suffix), 'rb'))
 
 if use_person:
-    person_data = pickle.load(open('%s/%s_person_data.bin' % (args.data_dir, args.data_file), 'rb'))
+    person_data = pickle.load(open('%s/%s%s_person_data.bin' % (args.data_dir, args.data_file,suffix), 'rb'))
     person_unique_a = function.remove_duplicates(person_data)
     if 'unknown' not in person_unique_a:
         person_unique_a.append('unknown')
@@ -86,11 +89,11 @@ if args.gpu >= 0:
     if use_reverse:
         model_reverse.to_gpu()
 
-checkpoint_dir = '%s_%s_%s_%s' % ( args.data_file, args.model_class, args.l1_size, args.l2_size )
+checkpoint_dir = '%s_%s_%s_%s%s' % ( args.data_file, args.model_class, args.l1_size, args.l2_size,suffix )
 serializers.load_npz(checkpoint_dir+'/'+args.model_file, model)
 if use_reverse:
     print 'REVERSE MODE!'
-    checkpoint_dir = '%s_%s_%s_%s_reverse' % ( args.data_file, args.model_class, args.l1_size, args.l2_size )
+    checkpoint_dir = '%s_%s_%s_%s%s_reverse' % ( args.data_file, args.model_class, args.l1_size, args.l2_size,suffix )
     serializers.load_npz(checkpoint_dir+'/'+args.reverse_model_file, model_reverse)
 
 # vocabのキーと値を入れ替えたもの
@@ -99,22 +102,41 @@ ivocab_a = {}
 for c, i in vocab.iteritems():
     ivocab[i] = c
     _data = c.split("::")
-    _data[1] = _data[1].split(',')
-    if len(_data[1])>=8:
-        _data[1][7] = function.hiragana(_data[1][7].decode('utf-8')).encode('utf-8')
+    if args.processor=='mecab':
+        if len(_data)==1:
+            _data.append(None)
+        else:
+            _data[1] = _data[1].split(',')
+            if len(_data[1])>=8:
+                _data[1] = function.hiragana(_data[1][7].decode('utf-8')).encode('utf-8')
+            else:
+                _data[1] = None
+    elif args.processor=='cabocha':
+        if len(_data)>=2:
+            _data[1] = function.hiragana(_data[1].decode('utf-8')).encode('utf-8')
+
     ivocab_a[i] = _data
 
 #prime text
 def get_first_index_a(_text):
     _first_index_a = []
-    node = mecab.parseToNode(_text)
-    while node:
-        if node.surface=="":
-            node=node.next
-            continue
-        word = node.surface+"::"+node.feature
-        _first_index_a.append(vocab[word])
-        node = node.next
+    if args.processor == 'mecab':
+        print 'use PRIME TEXT!'
+        node = mecab.parseToNode(_text)
+        while node:
+            if node.surface=="":
+                node=node.next
+                continue
+            word = node.surface+"::"+node.feature
+            _first_index_a.append(vocab[word])
+            node = node.next
+    elif args.processor == 'cabocha':
+        chunk_a = function.get_chunk(_text)
+        print chunk_a
+        for chunk in chunk_a:
+            if chunk!='EOS' and vocab.has_key(chunk):
+                print chunk
+                _first_index_a.append(vocab[chunk])
     return _first_index_a
 
 '''
@@ -150,17 +172,21 @@ def get_index_a(_model,_first_index_a,person_index):
             break
     return _sentence_index_a
 '''
+
+#def get_next_word_probability(_first_index_a,person_index):
+
+ignore_pattern = re.compile(r"^\s*$")
 def get_suggest_words(_model,_first_index_a,start_text,person_index,limit):
-    global ivocab,ivocab_a
+    global ivocab,ivocab_a,ignore_pattern
     _model.predictor.reset_state()
-    _sentence_index_a = []
+    #_sentence_index_a = []
     if len(_first_index_a)>0:
         for index in _first_index_a:
-            _sentence_index_a.append(index)
+            #_sentence_index_a.append(index)
             _model.predictor([xp.array([index], dtype=xp.int32),xp.array([person_index], dtype=xp.int32)])
     else:
         index = np.random.randint(1, len(vocab))
-        _sentence_index_a.append(index)
+        #_sentence_index_a.append(index)
     y = _model.predictor([xp.array([index], dtype=xp.int32),xp.array([person_index], dtype=xp.int32)])
     probability = F.softmax(y)
     probability.data[0] /= sum(probability.data[0])
@@ -172,12 +198,17 @@ def get_suggest_words(_model,_first_index_a,start_text,person_index,limit):
     print r"^"+start_text
     for i,key in enumerate(_key_a):
         _data = ivocab_a[key]
+        if key==0 or  _data[0]=='　' or ignore_pattern.match(_data[0])!=None:
+            continue
 
         if start_text!='':
-            if pattern.match(_data[0])==None and (len(_data[1])<8 or pattern.match(_data[1][7])==None):
+            #print _data[1]
+            if _data[1]==None or (pattern.match(_data[0])==None and (len(_data)==1 or pattern.match(_data[1])==None)):
                 continue
 
         result_a.append(_data[0])
+        if i == 3000:
+            break;
         '''
         result_a.append({
             'index':key,
@@ -195,9 +226,9 @@ def index():
     return 'Index Page'
 
 @app.route('/suggest')
-def hello():
+def suggest():
     #return "You said: " + request.args.get('start', '')
-    person_index = person_unique_a.index(request.args.get('person', ''))
+    person_index = person_unique_a.index(request.args.get('person', 'unknown'))
     first_index_a =  get_first_index_a(request.args.get('text', '').encode('utf-8'))
     start_text = request.args.get('start', '').encode('utf-8')
     #print "PERSON:"+args.person
@@ -206,4 +237,4 @@ def hello():
     return json.dumps(words_a)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0')
+    app.run(host='0.0.0.0',port=args.port)

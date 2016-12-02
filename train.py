@@ -33,6 +33,7 @@ parser.add_argument('--seed',           type=int,   default=1)
 parser.add_argument('--gpu',            type=int,   default=-1)
 parser.add_argument('--layer',            type=int,   default=3)
 parser.add_argument('--reverse',            type=int,   default=0)
+parser.add_argument('--processor',  type=str,   default='mecab')
 
 #person
 parser.add_argument('--person_size',        type=int,   default=10)
@@ -45,16 +46,17 @@ xp = cuda.cupy if args.gpu >= 0 else np
 xp.random.seed(args.seed)
 
 # モデル保存用フォルダ
+suffix = '' if args.processor=='mecab' else '_cabocha'
 if args.reverse:
-    checkpoint_dir = '%s_%s_%s_%s_reverse' % ( args.data_file, args.model_class, args.l1_size, args.l2_size )
+    checkpoint_dir = '%s_%s_%s_%s%s_reverse' % ( args.data_file, args.model_class, args.l1_size, args.l2_size,suffix )
 else:
-    checkpoint_dir = '%s_%s_%s_%s' % ( args.data_file, args.model_class, args.l1_size, args.l2_size )
+    checkpoint_dir = '%s_%s_%s_%s%s' % ( args.data_file, args.model_class, args.l1_size, args.l2_size,suffix )
 if not os.path.exists(checkpoint_dir):
     os.mkdir(checkpoint_dir)
 
 
-vocab = pickle.load(open('%s/%s_vocab.bin' % (args.data_dir, args.data_file), 'rb'))
-train_data = pickle.load(open('%s/%s_train_data.bin' % (args.data_dir, args.data_file), 'rb'))
+vocab = pickle.load(open('%s/%s%s_vocab.bin' % (args.data_dir, args.data_file,suffix), 'rb'))
+train_data = pickle.load(open('%s/%s%s_train_data.bin' % (args.data_dir, args.data_file,suffix), 'rb'))
 train_data_len = len(train_data)
 
 if args.reverse:
@@ -67,7 +69,7 @@ if args.reverse:
 
 if use_person:
     print 'use PERSON!'
-    person_data = pickle.load(open('%s/%s_person_data.bin' % (args.data_dir, args.data_file), 'rb'))
+    person_data = pickle.load(open('%s/%s%s_person_data.bin' % (args.data_dir, args.data_file,suffix), 'rb'))
     person_index_a = []
     person_unique_a = function.remove_duplicates(person_data)
     if 'unknown' not in person_unique_a:

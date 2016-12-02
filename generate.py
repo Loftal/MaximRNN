@@ -28,7 +28,7 @@ parser.add_argument('--model_class',    type=str,   default='PersonLSTM')
 parser.add_argument('--model_file',     type=str,   default='epoch_100.model')
 parser.add_argument('--l1_size',        type=int,   default=100)
 parser.add_argument('--l2_size',        type=int,   default=100)
-parser.add_argument('--seed',           type=int,   default=1)
+parser.add_argument('--seed',           type=int,   default=10)
 parser.add_argument('--deterministic',  type=bool,   default=False)
 parser.add_argument('--gpu',            type=int,   default=-1)
 parser.add_argument('--layer',            type=int,   default=3)
@@ -38,11 +38,13 @@ parser.add_argument('--suggest_start_letters',           type=str,   default='')
 
 #generate,suggest
 parser.add_argument('--mode',           type=str,   default='normal')
-parser.add_argument('--suggest_start',           type=str,   default='normal')
+parser.add_argument('--suggest_start',           type=str,   default='')
 
 #person
 parser.add_argument('--person_size',        type=int,   default=10)
 parser.add_argument('--person',        type=str,   default="unknown")
+
+parser.add_argument('--processor',  type=str,   default='cabocha')
 args = parser.parse_args()
 
 use_reverse = args.reverse_model_file!=''
@@ -53,8 +55,9 @@ mecab = MeCab.Tagger ("-Ochasen")
 
 use_person = args.model_class=='PersonLSTM'
 
-vocab = pickle.load(open('%s/%s_vocab.bin' % (args.data_dir, args.data_file), 'rb'))
-train_data = pickle.load(open('%s/%s_train_data.bin' % (args.data_dir, args.data_file), 'rb'))
+suffix = '' if args.processor=='mecab' else '_cabocha'
+vocab = pickle.load(open('%s/%s%s_vocab.bin' % (args.data_dir, args.data_file,suffix), 'rb'))
+train_data = pickle.load(open('%s/%s%s_train_data.bin' % (args.data_dir, args.data_file,suffix), 'rb'))
 
 if use_person:
     person_data = pickle.load(open('%s/%s_person_data.bin' % (args.data_dir, args.data_file), 'rb'))
@@ -82,7 +85,7 @@ if args.gpu >= 0:
     if use_reverse:
         model_reverse.to_gpu()
 
-checkpoint_dir = '%s_%s_%s_%s' % ( args.data_file, args.model_class, args.l1_size, args.l2_size )
+checkpoint_dir = '%s_%s_%s_%s%s' % ( args.data_file, args.model_class, args.l1_size, args.l2_size,suffix )
 serializers.load_npz(checkpoint_dir+'/'+args.model_file, model)
 if use_reverse:
     print 'REVERSE MODE!'
@@ -97,15 +100,22 @@ for c, i in vocab.iteritems():
 #prime text
 first_index_a = []
 if args.primetext!='':
-    print 'use PRIME TEXT!'
-    node = mecab.parseToNode(args.primetext)
-    while node:
-        if node.surface=="":
-            node=node.next
-            continue
-        word = node.surface+"::"+node.feature
-        first_index_a.append(vocab[word])
-        node = node.next
+    if args.processor == 'mecab':
+        print 'use PRIME TEXT!'
+        node = mecab.parseToNode(args.primetext)
+        while node:
+            if node.surface=="":
+                node=node.next
+                continue
+            word = node.surface+"::"+node.feature
+            first_index_a.append(vocab[word])
+            node = node.next
+    elif args.processor == 'cabocha':
+        chunk_a = function.get_chunk(args.primetext)
+        for chunk in chunk_a:
+            if chunk!='EOS':
+                first_index_a.append(vocab[chunk])
+
 
 def get_index_a(_model,_first_index_a):
     _model.predictor.reset_state()
@@ -182,6 +192,7 @@ if args.mode=='suggest':
     for data in words_a[0:5]:
         _tmp_index_a = first_index_a[::]
         _tmp_index_a.append(data['index'])
+        continue
         sentence_index_a = get_index_a(model,_tmp_index_a)
         sentence = ''
         for index in sentence_index_a:
